@@ -1,0 +1,48 @@
+# kube-prometheus-stack (Prometheus Operator + Prometheus + Alertmanager + Grafana),
+# sized for a laptop kind cluster.
+#
+#   helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+#     --version 92.4.0 -n monitoring --create-namespace -f monitoring/kube-prometheus-stack-values.yaml
+
+prometheus:
+  prometheusSpec:
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+    retention: 2d
+    # Pick up ServiceMonitors and PrometheusRules from every namespace, not only from this Helm release.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    serviceMonitorNamespaceSelector: {}
+    ruleNamespaceSelector: {}
+    resources:
+      requests: { cpu: 200m, memory: 400Mi }
+      limits: { memory: 1Gi }
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: { cpu: 20m, memory: 32Mi }
+
+grafana:
+  adminUser: admin
+  adminPassword: datadrift-admin   # local demo only; use an existing Secret in a real cluster
+  defaultDashboardsTimezone: browser
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL         # load the DataDrift dashboard ConfigMap from the datadrift namespace
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+
+# kind does not expose these control-plane components, so their targets would always show DOWN.
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false

@@ -1,0 +1,41 @@
+{{- if .Values.monitoring.enabled }}
+{{- $ns := .Release.Namespace -}}
+{{- $svc := printf "%s-backend" (include "datadrift.fullname" .) -}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "datadrift.fullname" . }}-alerts
+  labels:
+    {{- include "datadrift.labels" . | nindent 4 }}
+    release: {{ .Values.monitoring.prometheusRelease }}
+spec:
+  groups:
+    - name: datadrift.rules
+      rules:
+        # One alert instance per snapshot that is currently in DRIFT_DETECTED.
+        - alert: DatasetDriftDetected
+          expr: max by (dataset_name, version_tag) (datadrift_drift_score{namespace="{{ $ns }}", status="DRIFT_DETECTED"})
+          for: 0m
+          labels:
+            severity: warning
+            team: data-platform
+          annotations:
+            summary: {{`"Drift detected in {{ $labels.dataset_name }}@{{ $labels.version_tag }}"`}}
+            description: {{`"Snapshot {{ $labels.dataset_name }}@{{ $labels.version_tag }} has drift score {{ $value | printf \"%.2f\" }} and is blocked from training."`}}
+        - alert: DataDriftBackendDown
+          expr: sum(up{namespace="{{ $ns }}", service="{{ $svc }}"}) == 0 or absent(up{namespace="{{ $ns }}", service="{{ $svc }}"})
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No DataDrift backend pod is being scraped successfully"
+        - alert: DataDriftHighErrorRate
+          expr: |
+            sum(rate(http_requests_total{namespace="{{ $ns }}", status="5xx"}[5m]))
+              / clamp_min(sum(rate(http_requests_total{namespace="{{ $ns }}"}[5m])), 1e-9) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "More than 5% of DataDrift API requests are failing"
+{{- end }}

@@ -1,0 +1,18 @@
+{{- if .Values.monitoring.enabled }}
+# Tells the Prometheus Operator to scrape /metrics on every backend pod.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "datadrift.fullname" . }}-backend
+  labels:
+    {{- include "datadrift.labels" . | nindent 4 }}
+    release: {{ .Values.monitoring.prometheusRelease }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "datadrift.selector" (list . "backend") | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.monitoring.scrapeInterval }}
+{{- end }}
