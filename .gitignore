@@ -30,3 +30,7 @@ crash.log
 .vscode/
 .DS_Store
 *.log
+
+# Local-only presentation notes
+docs/DEMO_GUIDE.md
+docs/VIDEO_SCRIPT.md

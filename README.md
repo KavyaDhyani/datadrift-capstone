@@ -66,7 +66,7 @@ datadrift-capstone/
 ├── monitoring/              kube-prometheus-stack values (Prometheus + Grafana)
 ├── troubleshooting/         deliberately broken manifests for the debugging lab
 ├── scripts/                 seed, cluster-up, deploy-local, load-test
-└── docs/                    demo guide and video script
+└── docs/screenshots/        screenshots of the running project
 ```
 
 ## The application
@@ -244,8 +244,3 @@ kubectl apply -f troubleshooting/broken-service.yaml   # Service with no endpoin
 ```
 
 Each file explains the symptom, how to diagnose it and how to fix it.
-
-## Demo material
-
-- [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md): every command for the live demo and the screenshot checklist
-- [docs/VIDEO_SCRIPT.md](docs/VIDEO_SCRIPT.md): narration for the recorded walkthrough
