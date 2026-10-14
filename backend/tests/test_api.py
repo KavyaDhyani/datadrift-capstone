@@ -94,5 +94,9 @@ def test_metrics_expose_registry_state(client, snapshot):
     snapshot(drift_score=0.9)
     body = client.get("/metrics").text
     assert 'datadrift_datasets{status="DRIFT_DETECTED"} 1.0' in body
+    assert (
+        'datadrift_drift_score{dataset_name="customer-churn",status="DRIFT_DETECTED",version_tag="v1.0-raw"} 0.9'
+        in body
+    )
     assert "datadrift_drift_flags_total" in body
     assert "http_requests_total" in body

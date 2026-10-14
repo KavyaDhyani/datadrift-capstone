@@ -26,13 +26,13 @@ class RegistryCollector:
         drift = GaugeMetricFamily(
             "datadrift_drift_score",
             "Drift score of each non-archived snapshot",
-            labels=["dataset_name", "version_tag"],
+            labels=["dataset_name", "version_tag", "status"],
         )
         try:
             with SessionLocal() as db:
                 counts = dict(db.execute(select(Dataset.status, func.count(Dataset.id)).group_by(Dataset.status)).all())
                 active = db.execute(
-                    select(Dataset.dataset_name, Dataset.version_tag, Dataset.drift_score).where(
+                    select(Dataset.dataset_name, Dataset.version_tag, Dataset.drift_score, Dataset.status).where(
                         Dataset.status != "ARCHIVED"
                     )
                 ).all()
@@ -44,7 +44,7 @@ class RegistryCollector:
             by_status.add_metric([status], counts.get(status, 0))
         avg_drift.add_metric([], sum(row.drift_score for row in active) / len(active) if active else 0.0)
         for row in active:
-            drift.add_metric([row.dataset_name, row.version_tag], row.drift_score)
+            drift.add_metric([row.dataset_name, row.version_tag, row.status], row.drift_score)
         yield by_status
         yield avg_drift
         yield drift

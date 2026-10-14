@@ -20,7 +20,7 @@ echo "Seeding DataDrift at $BASE_URL"
 register customer-churn     v1.0-raw       118400   4.2  0.06
 register customer-churn     v1.2-cleaned   117950   0.3  0.11
 register fraud-transactions v3.1-cleaned   2450000  0.8  0.19
-register product-reviews    v2.0-dedup     584210   1.1  0.42
+register product-reviews    v2.0-dedup     584210   1.1  0.24
 register clinic-readmission v0.9-beta      48230    7.6  0.27
 register energy-load        v4.0-hourly    876000   0.0  0.04
 echo "Done."
