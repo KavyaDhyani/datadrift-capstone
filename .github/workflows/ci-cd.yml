@@ -1,0 +1,160 @@
+name: DataDrift CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  TRIVY_VERSION: "0.75.0"
+
+jobs:
+  # ---------------------------------------------------------------- quality gates
+  backend-tests:
+    name: Backend lint + tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Lint (ruff)
+        run: |
+          ruff check .
+          ruff format --check .
+      - name: Run pytest
+        run: pytest -v
+
+  frontend-build:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  validate-iac:
+    name: Validate Terraform + Helm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: terraform fmt / init / validate
+        working-directory: terraform
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false -input=false
+          terraform validate
+      - uses: azure/setup-helm@v4
+      - name: helm lint
+        run: helm lint helm/datadrift --set backend.image.tag=ci --set frontend.image.tag=ci
+
+  # ---------------------------------------------------------------- build, scan, publish
+  build-scan-push:
+    name: Build, scan & push (${{ matrix.service }})
+    needs: [backend-tests, frontend-build, validate-iac]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute image name (GHCR needs a lowercase owner)
+        run: echo "IMAGE=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/datadrift-${{ matrix.service }}:${GITHUB_SHA}" >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.service }}
+          load: true
+          tags: ${{ env.IMAGE }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+      - name: Trivy scan (fails on fixable HIGH/CRITICAL CVEs)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            "aquasec/trivy:${TRIVY_VERSION}" image \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress \
+            "$IMAGE"
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push image
+        if: github.event_name != 'pull_request'
+        run: |
+          docker push "$IMAGE"
+          echo "### ${{ matrix.service }} image" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$IMAGE\` — built, scanned clean, pushed" >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------- deploy
+  deploy:
+    name: Deploy with Helm
+    needs: build-scan-push
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: No cluster configured
+        if: env.KUBE_CONFIG_DATA == ''
+        run: |
+          echo "::notice::KUBE_CONFIG_DATA secret is not set, so the cluster deploy is skipped."
+          echo "Images for ${GITHUB_SHA} are in GHCR. Deploy them locally with:" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`./scripts/deploy-local.sh --ghcr ${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
+      - uses: azure/setup-helm@v4
+        if: env.KUBE_CONFIG_DATA != ''
+      - name: Configure kubectl
+        if: env.KUBE_CONFIG_DATA != ''
+        run: |
+          mkdir -p ~/.kube
+          echo "$KUBE_CONFIG_DATA" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+      - name: helm upgrade --install
+        if: env.KUBE_CONFIG_DATA != ''
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          helm upgrade --install datadrift ./helm/datadrift \
+            -n datadrift --create-namespace \
+            -f helm/datadrift/values-prod.yaml \
+            --set backend.image.repository="ghcr.io/$OWNER/datadrift-backend" \
+            --set frontend.image.repository="ghcr.io/$OWNER/datadrift-frontend" \
+            --set backend.image.tag="${GITHUB_SHA}" \
+            --set frontend.image.tag="${GITHUB_SHA}" \
+            --set postgres.password="${DB_PASSWORD:?Set the DB_PASSWORD repository secret}" \
+            --wait --timeout 10m
+          kubectl get pods -n datadrift
