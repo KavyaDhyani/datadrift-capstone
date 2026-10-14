@@ -14,7 +14,6 @@ async function request(url, options = {}) {
 }
 
 export const api = {
-  health: () => request('/health'),
   list: () => request(API),
   summary: () => request(`${API}/summary`),
   register: (snapshot) => request(API, { method: 'POST', body: JSON.stringify(snapshot) }),
