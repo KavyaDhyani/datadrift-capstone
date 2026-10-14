@@ -1,0 +1,32 @@
+{{- if .Values.ingress.enabled }}
+{{- $name := include "datadrift.fullname" . -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "datadrift.labels" . | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          # /api (and the Swagger docs) go straight to FastAPI; everything else to the React app.
+          - path: /api
+            pathType: Prefix
+            backend:
+              service: { name: {{ $name }}-backend, port: { name: http } }
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service: { name: {{ $name }}-backend, port: { name: http } }
+          - path: /openapi.json
+            pathType: Exact
+            backend:
+              service: { name: {{ $name }}-backend, port: { name: http } }
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: {{ $name }}-frontend, port: { name: http } }
+{{- end }}

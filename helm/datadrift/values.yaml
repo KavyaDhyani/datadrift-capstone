@@ -1,0 +1,49 @@
+# Default values. Environment overrides live in values-local.yaml (kind) and values-prod.yaml (EKS).
+
+backend:
+  image:
+    repository: ghcr.io/kavyadhyani/datadrift-backend
+    tag: ""            # set to the Git commit SHA at deploy time
+    pullPolicy: IfNotPresent
+  replicas: 2          # ignored while the HPA is enabled
+  driftThreshold: "0.30"
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+frontend:
+  image:
+    repository: ghcr.io/kavyadhyani/datadrift-frontend
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicas: 2
+  resources:
+    requests: { cpu: 50m, memory: 32Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+
+imagePullSecrets: []
+
+postgres:
+  image: postgres:16-alpine
+  database: datadrift
+  username: datadrift
+  password: change-me       # override with --set postgres.password=... ; never commit a real one
+  storage: 1Gi
+  storageClassName: ""      # empty = cluster default
+
+ingress:
+  enabled: true
+  className: nginx
+  host: datadrift.localtest.me
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 60
+
+monitoring:
+  # Needs the Prometheus Operator CRDs (kube-prometheus-stack).
+  enabled: true
+  prometheusRelease: monitoring   # Helm release name of kube-prometheus-stack
+  scrapeInterval: 15s

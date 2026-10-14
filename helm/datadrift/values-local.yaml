@@ -1,0 +1,13 @@
+# kind cluster on a laptop: images are built locally and loaded into the node.
+backend:
+  image:
+    repository: datadrift-backend
+    pullPolicy: Never
+frontend:
+  image:
+    repository: datadrift-frontend
+    pullPolicy: Never
+postgres:
+  password: datadrift-local
+ingress:
+  host: datadrift.localtest.me

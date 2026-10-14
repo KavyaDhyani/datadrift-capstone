@@ -1,0 +1,19 @@
+# EKS: images come from GHCR, the CI pipeline sets the tags to the commit SHA.
+backend:
+  image:
+    repository: ghcr.io/kavyadhyani/datadrift-backend
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "1", memory: 512Mi }
+frontend:
+  image:
+    repository: ghcr.io/kavyadhyani/datadrift-frontend
+  replicas: 3
+postgres:
+  storage: 10Gi
+  storageClassName: gp2
+ingress:
+  host: datadrift.example.com
+hpa:
+  minReplicas: 3
+  maxReplicas: 10

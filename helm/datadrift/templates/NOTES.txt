@@ -1,0 +1,11 @@
+DataDrift {{ .Chart.AppVersion }} is deployed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+  backend image : {{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}
+  frontend image: {{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}
+
+Check it:
+  kubectl get pods,svc,ingress,hpa -n {{ .Release.Namespace }}
+{{- if .Values.ingress.enabled }}
+
+Open: http://{{ .Values.ingress.host }}
+{{- end }}
