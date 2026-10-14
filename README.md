@@ -124,7 +124,7 @@ Interactive Swagger docs: `http://localhost:8000/docs` (Compose) or `http://data
 | Node 22 | frontend build outside Docker (optional) |
 | kind, kubectl, Helm 3+ | Kubernetes, Helm and monitoring sections |
 | Terraform ≥ 1.6 | infrastructure code (an AWS account is optional, see below) |
-| curl | `seed.sh` and `load-test.sh` |
+| curl, jq | `seed.sh`, `load-test.sh` and the API examples below |
 
 Which scripts need a **running kind cluster** (create it once with `./scripts/cluster-up.sh`):
 
@@ -141,32 +141,215 @@ The cluster runs inside the Docker container `datadrift-control-plane`. After a 
 bring it back with `docker start datadrift-control-plane` (data on the Postgres volume is kept), and restart
 any port-forwards.
 
-## Run it locally with Docker Compose
+## Run and test the full project
+
+Every command below runs from the repository root unless a step says otherwise. Steps 1–6 work without a
+cluster; steps 7–11 need the kind cluster (see [Prerequisites](#prerequisites)).
+
+### 1. Clone and start the stack with Docker Compose
 
 ```bash
-docker compose up --build -d
-./scripts/seed.sh                   # registers six sample snapshots through the API
+git clone https://github.com/KavyaDhyani/datadrift-capstone.git
+cd datadrift-capstone
+docker compose up --build -d --wait     # postgres, backend (runs the migration first), frontend
+docker compose ps                       # all three services Up; backend and postgres (healthy)
+./scripts/seed.sh                       # registers six sample snapshots through the API
 ```
 
-- UI: http://localhost:3000
-- API docs: http://localhost:8000/docs
-- Metrics: http://localhost:8000/metrics
+| URL | What |
+|-----|------|
+| http://localhost:3000 | DataDrift UI |
+| http://localhost:8000/docs | Swagger UI for the API |
+| http://localhost:8000/health | liveness, returns `{"status":"UP"}` |
+| http://localhost:8000/metrics | Prometheus metrics |
 
-Stop with `docker compose down` (add `-v` to delete the database volume).
+### 2. Test the REST API (GET, POST, PUT, DELETE)
 
-## Tests and code quality
+```bash
+API=http://localhost:8000
+curl -s $API/health
+curl -s $API/ready                                         # checks the database connection
+curl -s $API/api/datasets | jq                              # list all snapshots
+curl -s "$API/api/datasets?status=VERIFIED" | jq length     # filter by status
+curl -s $API/api/datasets/summary | jq                      # counts and average drift
+
+# POST: register a snapshot; drift >= 0.30 is flagged automatically
+ID=$(curl -s -X POST $API/api/datasets -H 'Content-Type: application/json' \
+  -d '{"dataset_name":"demo-set","version_tag":"v1","record_count":5000,"missing_pct":1.2,"drift_score":0.42}' \
+  | jq .id)
+curl -s $API/api/datasets/$ID | jq '{dataset_name, status}'  # DRIFT_DETECTED
+
+# PUT: mark it verified (what the UI's "Mark verified" button does)
+curl -s -X PUT $API/api/datasets/$ID -H 'Content-Type: application/json' -d '{"status":"VERIFIED"}' | jq .status
+
+# Validation and conflicts
+curl -s -o /dev/null -w '%{http_code}\n' -X POST $API/api/datasets -H 'Content-Type: application/json' \
+  -d '{"dataset_name":"demo-set","version_tag":"v1","record_count":1}'       # 409 duplicate version
+curl -s -o /dev/null -w '%{http_code}\n' -X POST $API/api/datasets -H 'Content-Type: application/json' \
+  -d '{"dataset_name":"bad","version_tag":"v1","record_count":1,"drift_score":1.5}'  # 422 out of range
+curl -s -o /dev/null -w '%{http_code}\n' $API/api/datasets/999999            # 404
+
+# DELETE: archive by default, ?purge=true removes the row
+curl -s -X DELETE $API/api/datasets/$ID | jq .status                          # ARCHIVED
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE "$API/api/datasets/$ID?purge=true"   # 204
+```
+
+In the UI, **Flag drift** sends `PUT {"status":"DRIFT_DETECTED"}` and the badge turns red;
+**Mark verified** sends it back to `VERIFIED`.
+
+### 3. Check the database and the Alembic migration
+
+```bash
+docker compose exec postgres psql -U datadrift -d datadrift -c "\d datasets"
+docker compose exec postgres psql -U datadrift -d datadrift -c "SELECT * FROM alembic_version;"   # 0001_create_datasets
+docker compose exec postgres psql -U datadrift -d datadrift \
+  -c "SELECT id, dataset_name, version_tag, drift_score, status FROM datasets ORDER BY id;"
+```
+
+### 4. Run the tests and the linter
 
 ```bash
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 ruff check . && ruff format --check .
-pytest -v
+pytest -v                     # 14 passed
+deactivate && cd ..
 ```
 
 `tests/conftest.py` sets `DATABASE_URL` to a throwaway SQLite file before the app is imported and recreates
 the tables for every test, so the suite never touches Postgres. The 14 tests cover every endpoint, including
 validation errors, duplicate versions (409), automatic drift flagging, archive vs purge, and the metrics output.
+
+### 5. Check the containers: non-root users and the Trivy scan
+
+```bash
+docker compose exec backend id          # uid=10001(appuser)
+docker compose exec frontend id         # uid=101(nginx)
+
+for img in datadrift-backend:local datadrift-frontend:local; do
+  docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.75.0 \
+    image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$img"
+  echo "$img -> trivy exit code $?"     # 0 = no fixable HIGH/CRITICAL CVEs
+done
+```
+
+### 6. Validate and plan the Terraform code
+
+```bash
+cd terraform
+terraform init
+terraform fmt -check && terraform validate
+# No AWS account needed: offline plan with dummy keys (creates nothing)
+AWS_ACCESS_KEY_ID=demo AWS_SECRET_ACCESS_KEY=demo terraform plan -var offline_plan=true   # Plan: 25 to add
+cd ..
+```
+
+With a real AWS account, use `terraform plan`, `terraform apply` and `terraform destroy` instead
+(see [Terraform](#terraform--aws-vpc--eks)).
+
+### 7. Deploy to Kubernetes with Helm (kind)
+
+```bash
+./scripts/cluster-up.sh       # kind cluster + ingress-nginx + metrics-server + kube-prometheus-stack (~3 min)
+./scripts/deploy-local.sh     # build images tagged with the commit SHA, load into kind, helm upgrade --install
+./scripts/seed.sh http://datadrift.localtest.me
+
+kubectl get pods -n datadrift             # 2 backend, 2 frontend, 1 postgres, all Running
+kubectl get svc,ingress,hpa -n datadrift  # ClusterIP services, ingress host, HPA 2-5 @ 60% CPU
+helm list -n datadrift                    # release "datadrift", STATUS deployed
+curl -s http://datadrift.localtest.me/api/datasets/summary | jq
+```
+
+Open http://datadrift.localtest.me. `*.localtest.me` resolves to 127.0.0.1, so no hosts-file edit is needed.
+
+### 8. Open Prometheus and Grafana
+
+Run each port-forward in its own terminal and leave it running:
+
+```bash
+kubectl port-forward -n monitoring svc/monitoring-kube-prometheus-prometheus 9090:9090
+kubectl port-forward -n monitoring svc/monitoring-grafana 3001:80
+```
+
+- Prometheus targets: http://localhost:9090/targets (search `datadrift`: 2/2 backend pods UP)
+- Prometheus alert rules: http://localhost:9090/alerts
+- Grafana: http://localhost:3001, login `admin` / `datadrift-admin`, then
+  **Dashboards → DataDrift — Registry & API Overview** (http://localhost:3001/d/datadrift-overview)
+
+```bash
+kubectl port-forward -n datadrift svc/datadrift-backend 8001:8000 &   # 8001, because Compose uses 8000
+curl -s localhost:8001/metrics | grep -E "^datadrift_|^http_requests_total"
+```
+
+### 9. Trigger the drift alert
+
+Click **Flag drift** on any snapshot at http://datadrift.localtest.me, or use the API:
+
+```bash
+K8S=http://datadrift.localtest.me
+ID=$(curl -s "$K8S/api/datasets?status=VERIFIED" | jq '.[0].id')
+curl -s -X PUT $K8S/api/datasets/$ID -H 'Content-Type: application/json' -d '{"status":"DRIFT_DETECTED"}' | jq .status
+
+# about 30 s later the alert is firing:
+curl -s --get localhost:9090/api/v1/query \
+  --data-urlencode 'query=ALERTS{alertname="DatasetDriftDetected",alertstate="firing"}' | jq '.data.result[].metric'
+```
+
+The Grafana **Drift alert** panel turns red and shows FIRING. Clear it again:
+
+```bash
+curl -s -X PUT $K8S/api/datasets/$ID -H 'Content-Type: application/json' -d '{"status":"VERIFIED"}' | jq .status
+```
+
+### 10. Watch the autoscaler
+
+```bash
+kubectl get hpa -n datadrift -w                                  # terminal 1
+./scripts/load-test.sh http://datadrift.localtest.me 180 20      # terminal 2: 3 minutes of traffic
+```
+
+Replicas go from 2 up to 4 within about a minute once CPU passes 60%. After the load stops, the HPA waits
+for its 5-minute scale-down stabilization window and then returns to 2. The Grafana panels for requests,
+latency, errors, CPU and replicas fill in during the test.
+
+### 11. Ship a change through the pipeline
+
+```bash
+sed -i "s/const UI_VERSION = '1.0.0'/const UI_VERSION = '1.1.0'/" frontend/src/App.jsx
+git commit -am "Bump dashboard version badge to 1.1.0" && git push
+```
+
+Wait for the run at https://github.com/KavyaDhyani/datadrift-capstone/actions to go green, then deploy the
+images CI built for that commit:
+
+```bash
+./scripts/deploy-local.sh --ghcr "$(git rev-parse HEAD)"
+kubectl get deploy -n datadrift -o custom-columns=NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image
+helm history datadrift -n datadrift        # helm rollback datadrift <revision> undoes it
+```
+
+Refresh http://datadrift.localtest.me: the header badge shows `UI v1.1.0`.
+
+### Reset the data
+
+```bash
+# Compose
+docker compose exec postgres psql -U datadrift -d datadrift -c "TRUNCATE datasets RESTART IDENTITY;"
+./scripts/seed.sh
+# kind
+kubectl exec -n datadrift statefulset/datadrift-postgres -- \
+  sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "TRUNCATE datasets RESTART IDENTITY;"'
+./scripts/seed.sh http://datadrift.localtest.me
+```
+
+### Clean up
+
+```bash
+pkill -f "kubectl port-forward"
+kind delete cluster --name datadrift     # removes the local cluster
+docker compose down -v                   # removes the Compose stack and its database volume
+```
 
 ## CI/CD pipeline — `.github/workflows/ci-cd.yml`
 
