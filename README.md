@@ -64,7 +64,6 @@ datadrift-capstone/
 ├── helm/datadrift/          Helm chart (deployments, services, ingress, HPA, Postgres,
 │                            ServiceMonitor, PrometheusRule, Grafana dashboard)
 ├── monitoring/              kube-prometheus-stack values (Prometheus + Grafana)
-├── troubleshooting/         deliberately broken manifests for the debugging lab
 ├── scripts/                 seed, cluster-up, deploy-local, load-test
 └── docs/screenshots/        screenshots of the running project
 ```
@@ -135,7 +134,7 @@ Which scripts need a **running kind cluster** (create it once with `./scripts/cl
 | `scripts/cluster-up.sh` | no, it creates the cluster |
 | `scripts/deploy-local.sh` | yes |
 | `scripts/load-test.sh` | yes, it targets the Ingress and drives the HPA |
-| Prometheus / Grafana port-forwards, `troubleshooting/` manifests | yes |
+| Prometheus / Grafana port-forwards | yes |
 
 The cluster runs inside the Docker container `datadrift-control-plane`. After a Docker or machine restart,
 bring it back with `docker start datadrift-control-plane` (data on the Postgres volume is kept), and restart
@@ -445,12 +444,3 @@ kubectl port-forward -n monitoring svc/monitoring-kube-prometheus-prometheus 909
 Clicking **Flag drift** in the UI sends `PUT /api/datasets/{id}`. The badge turns red, the next scrape exports
 the snapshot with `status="DRIFT_DETECTED"`, and within about 30 seconds the `DatasetDriftDetected` alert
 fires in Prometheus and the dashboard's "Drift alert" panel turns red.
-
-## Troubleshooting lab
-
-```bash
-kubectl apply -f troubleshooting/broken-image.yaml     # ImagePullBackOff → kubectl describe pod
-kubectl apply -f troubleshooting/broken-service.yaml   # Service with no endpoints → check labels
-```
-
-Each file explains the symptom, how to diagnose it and how to fix it.
