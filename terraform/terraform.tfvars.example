@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars and adjust. terraform.tfvars is git-ignored.
+# Credentials never go here: use `aws configure` or environment variables.
+project             = "datadrift"
+environment         = "dev"
+aws_region          = "ap-south-1"
+availability_zones  = ["ap-south-1a", "ap-south-1b"]
+vpc_cidr            = "10.30.0.0/16"
+cluster_name        = "datadrift-eks"
+kubernetes_version  = "1.35"
+node_instance_types = ["t3.medium"]
+node_desired_size   = 2
+node_min_size       = 2
+node_max_size       = 4
