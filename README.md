@@ -115,6 +115,32 @@ Interactive Swagger docs: `http://localhost:8000/docs` (Compose) or `http://data
 | `datadrift_snapshots_registered_total` | counter | snapshots registered |
 | `http_requests_total`, `http_request_duration_seconds` | counter / histogram | request rate, errors, latency |
 
+## Prerequisites
+
+| Tool | Needed for |
+|------|-----------|
+| Docker (with Compose v2) | everything: Compose stack, image builds, and the kind cluster's nodes |
+| Python 3.12 | backend tests and lint |
+| Node 22 | frontend build outside Docker (optional) |
+| kind, kubectl, Helm 3+ | Kubernetes, Helm and monitoring sections |
+| Terraform ≥ 1.6 | infrastructure code (an AWS account is optional, see below) |
+| curl | `seed.sh` and `load-test.sh` |
+
+Which scripts need a **running kind cluster** (create it once with `./scripts/cluster-up.sh`):
+
+| Script / command | Needs the kind cluster? |
+|------------------|-------------------------|
+| `scripts/seed.sh` (default URL) | no, it targets the Compose stack on `localhost:3000` |
+| `scripts/seed.sh http://datadrift.localtest.me` | yes |
+| `scripts/cluster-up.sh` | no, it creates the cluster |
+| `scripts/deploy-local.sh` | yes |
+| `scripts/load-test.sh` | yes, it targets the Ingress and drives the HPA |
+| Prometheus / Grafana port-forwards, `troubleshooting/` manifests | yes |
+
+The cluster runs inside the Docker container `datadrift-control-plane`. After a Docker or machine restart,
+bring it back with `docker start datadrift-control-plane` (data on the Postgres volume is kept), and restart
+any port-forwards.
+
 ## Run it locally with Docker Compose
 
 ```bash
@@ -195,6 +221,7 @@ documents the inputs.
 ## Kubernetes + Helm
 
 Locally the chart runs on a kind cluster. The same chart deploys to EKS with `values-prod.yaml`.
+Everything in this section and the next needs the kind cluster running (see [Prerequisites](#prerequisites)).
 
 ```bash
 ./scripts/cluster-up.sh       # kind cluster + ingress-nginx + metrics-server + kube-prometheus-stack
