@@ -444,3 +444,186 @@ kubectl port-forward -n monitoring svc/monitoring-kube-prometheus-prometheus 909
 Clicking **Flag drift** in the UI sends `PUT /api/datasets/{id}`. The badge turns red, the next scrape exports
 the snapshot with `status="DRIFT_DETECTED"`, and within about 30 seconds the `DatasetDriftDetected` alert
 fires in Prometheus and the dashboard's "Drift alert" panel turns red.
+
+## Screenshots
+
+All screenshots were taken from the running project. They follow the order of the
+[run-and-test guide](#run-and-test-the-full-project).
+
+### Application — Docker Compose
+
+**`docker compose up --build`**: both images build, and Postgres, backend and frontend start. Postgres and the
+backend report `Healthy`.
+
+![docker compose up --build](docs/screenshots/01-compose-up-build.png)
+
+**`docker compose ps`**: the three services are up, with ports 3000 (UI) and 8000 (API) published.
+
+![docker compose ps](docs/screenshots/02-compose-ps.png)
+
+**Dashboard at http://localhost:3000**: KPI cards, the snapshot registry with drift bars, and the training gate.
+All six seeded snapshots are verified.
+
+![DataDrift dashboard](docs/screenshots/03-ui-dashboard.png)
+
+**Register a snapshot**: the form shows whether the drift score is below or above the 0.30 threshold before it
+is submitted.
+
+![Register snapshot form](docs/screenshots/04-ui-register-snapshot.png)
+
+**Drift detected**: a snapshot registered with drift 0.31 is flagged automatically, gets a red badge and is
+listed as blocked in the training gate.
+
+![Snapshot flagged as drift detected](docs/screenshots/05-ui-drift-detected.png)
+
+### API, metrics and database
+
+**Swagger UI at `/docs`**: GET, POST, PUT and DELETE on `/api/datasets`, plus `/health`, `/ready` and the summary.
+
+![Swagger UI](docs/screenshots/06-api-swagger-docs.png)
+
+**`/health`** returns `{"status":"UP"}`.
+
+![Health endpoint](docs/screenshots/07-api-health.png)
+
+**`/metrics`** in Prometheus format: Python process metrics, the custom `datadrift_*` gauges and counters, and
+`http_requests_total`.
+
+![Metrics endpoint](docs/screenshots/08-api-metrics.png)
+
+**PostgreSQL**: the `datasets` table with its unique and check constraints, the Alembic version
+`0001_create_datasets`, and the seeded rows.
+
+![Postgres table and Alembic version](docs/screenshots/09-postgres-schema-alembic.png)
+
+### Docker — non-root images
+
+The backend runs as `uid=10001(appuser)` and the frontend as `uid=101(nginx)`. The image list shows tags
+for the commit SHA, and the Dockerfiles show the multi-stage frontend build (`node:22-alpine AS build` →
+`nginx-unprivileged`).
+
+![Non-root containers](docs/screenshots/10-docker-non-root.png)
+
+### Testing — ruff and pytest
+
+`ruff check` and `ruff format --check` pass, and `pytest -v` runs 14 tests, all passing.
+
+![ruff and pytest](docs/screenshots/11-ruff-pytest.png)
+
+### Git and GitHub
+
+The commit history: one descriptive commit per step, all by the project author.
+
+![Commit history](docs/screenshots/12-git-log.png)
+
+### CI/CD — GitHub Actions
+
+A green pipeline run: lint + tests, frontend build and Terraform/Helm validation run in parallel, then the
+build → Trivy scan → GHCR push matrix for both images, then the Helm deploy job. The summary shows the
+pushed image `ghcr.io/kavyadhyani/datadrift-backend:<commit-sha>`, "built, scanned clean, pushed".
+
+![GitHub Actions run](docs/screenshots/13-github-actions-run.png)
+
+### Terraform — AWS VPC + EKS
+
+**`terraform init`, `fmt -check` and `validate`**: the configuration is valid.
+
+![terraform init and validate](docs/screenshots/14-terraform-init-validate.png)
+
+**`terraform plan`** (offline, dummy credentials): `Plan: 25 to add, 0 to change, 0 to destroy`, with the
+outputs for the EKS cluster.
+
+![terraform plan](docs/screenshots/15-terraform-plan.png)
+
+**The key resources in the plan**: VPC, two public and two private subnets, NAT gateway, EKS cluster,
+managed node group, and the EBS CSI and metrics-server add-ons.
+
+![Terraform resources](docs/screenshots/16-terraform-resources.png)
+
+**`terraform plan -destroy`**: nothing was applied, so there is nothing left to destroy and no AWS cost.
+
+![terraform destroy plan](docs/screenshots/17-terraform-destroy-plan.png)
+
+### Kubernetes + Helm (kind)
+
+**`./scripts/cluster-up.sh`**: installs ingress-nginx, metrics-server and kube-prometheus-stack with Helm.
+
+![cluster-up: ingress-nginx](docs/screenshots/18-cluster-up-ingress.png)
+
+![cluster-up: metrics-server and kube-prometheus-stack](docs/screenshots/19-cluster-up-monitoring.png)
+
+**`./scripts/deploy-local.sh`**: builds images tagged with the commit SHA, loads them into kind and runs
+`helm upgrade --install`. The pods roll over to the new version.
+
+![Helm deploy](docs/screenshots/20-helm-deploy-seed.png)
+
+**`kubectl get pods,svc,ingress,hpa` and `helm list`**: all pods Running, ClusterIP services for backend, frontend
+and Postgres, the Ingress host `datadrift.localtest.me`, the HPA (2–5 replicas at 60% CPU) and the release
+`datadrift` in status `deployed`.
+
+![kubectl and helm list](docs/screenshots/21-kubectl-pods-svc-helm.png)
+
+**The app through the Ingress** at http://datadrift.localtest.me.
+
+![UI through the Ingress](docs/screenshots/22-ui-via-ingress.png)
+
+### Observability — Prometheus + Grafana
+
+**`curl /metrics` on the backend Service in the cluster**.
+
+![Metrics in Kubernetes](docs/screenshots/23-k8s-metrics-endpoint.png)
+
+**Prometheus targets**: the ServiceMonitor `datadrift/datadrift-backend` is scraping both backend pods, 2/2 UP.
+
+![Prometheus targets](docs/screenshots/24-prometheus-targets.png)
+
+**Alert rules** from the Helm chart's PrometheusRule: `DatasetDriftDetected`, `DataDriftBackendDown` and
+`DataDriftHighErrorRate`, all inactive.
+
+![Prometheus alert rules](docs/screenshots/25-prometheus-alert-rules.png)
+
+**Grafana dashboard "DataDrift — Registry & API Overview"**, loaded automatically: drift alert OK, snapshots in
+drift, verified count, the average drift gauge, backend pods up, drift score per snapshot and snapshots by
+status.
+
+![Grafana dashboard](docs/screenshots/26-grafana-dashboard.png)
+
+**API panels**: request rate, p95 latency, error responses, backend CPU per pod and HPA replicas.
+
+![Grafana API panels](docs/screenshots/27-grafana-api-panels.png)
+
+### The drift alert, live
+
+After **Flag drift** is clicked on `clinic-readmission@v0.9-beta`, `DatasetDriftDetected` fires within about
+30 seconds, labelled with the dataset and version.
+
+![Prometheus alert firing](docs/screenshots/28-prometheus-alert-firing.png)
+
+The Grafana **Drift alert** panel turns red with **FIRING**, "Snapshots in drift" shows 1, and the status chart
+steps up.
+
+![Grafana alert firing](docs/screenshots/29-grafana-alert-firing.png)
+
+### Autoscaling — HPA
+
+Under `./scripts/load-test.sh`, CPU rises to 98% of the request and the HPA scales the backend from 2 to 4
+pods. After the load stops, it waits out the 5-minute stabilization window and scales back to 2.
+
+![HPA scaling](docs/screenshots/30-hpa-scaling.png)
+
+The same three load tests in Grafana: request rate, 4xx responses from the deliberate 404 calls, CPU per pod,
+and replicas moving between 2 and 4.
+
+![Grafana during load tests](docs/screenshots/31-grafana-load-test.png)
+
+### Live change: commit → pipeline → deployment
+
+After the version badge was bumped to 1.1.0 and pushed, the pipeline built and pushed new images.
+`deploy-local.sh --ghcr <sha>` deployed those exact GHCR images, the rollout finished, both Deployments run
+the image tagged with the new commit SHA, and `helm history` lists the revision.
+
+![Deploy GHCR images](docs/screenshots/32-deploy-ghcr-images.png)
+
+The UI through the Ingress now shows **UI v1.1.0**.
+
+![UI version 1.1.0](docs/screenshots/33-ui-version-1-1-0.png)
