@@ -6,7 +6,7 @@ Provisions the AWS infrastructure the Helm chart runs on, using plain `aws_*` re
 |------|-----------------|
 | `vpc.tf` | VPC, 2 public + 2 private subnets across 2 AZs, internet gateway, NAT gateway, route tables |
 | `iam.tf` | IAM roles for the EKS control plane and the worker nodes |
-| `eks.tf` | EKS cluster and a managed node group (2–4 × t3.medium) in the private subnets |
+| `eks.tf` | EKS cluster, a managed node group (2–4 × t3.medium) in the private subnets, and the EBS CSI + metrics-server add-ons |
 | `outputs.tf` | VPC/subnet IDs, cluster endpoint, and the `aws eks update-kubeconfig` command |
 
 ## Real AWS account
