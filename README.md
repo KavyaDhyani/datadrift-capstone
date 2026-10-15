@@ -529,6 +529,21 @@ pushed image `ghcr.io/kavyadhyani/datadrift-backend:<commit-sha>`, "built, scann
 
 ![GitHub Actions run](docs/screenshots/13-github-actions-run.png)
 
+**Pushing to GHCR**: inside the *Build, scan & push (backend)* job, the image is built and scanned, then the
+job logs in to `ghcr.io` with the workflow's `GITHUB_TOKEN` ("Login Succeeded") and pushes the image. No
+personal credentials are stored in the repository.
+
+![GHCR login and push steps](docs/screenshots/35-actions-ghcr-login-push.png)
+
+### DevSecOps — Trivy in the pipeline
+
+The *Trivy scan (fails on fixable HIGH/CRITICAL CVEs)* step runs `aquasec/trivy:0.75.0` against the freshly
+built image. It downloads the latest vulnerability database, checks the Debian OS packages and Python
+libraries, and also scans for secrets. The step passed, so the image had no fixable HIGH or CRITICAL CVEs
+and the job went on to push it. A finding would have stopped the job before the push.
+
+![Trivy scan step in GitHub Actions](docs/screenshots/34-actions-trivy-scan.png)
+
 ### Terraform — AWS VPC + EKS
 
 **`terraform init`, `fmt -check` and `validate`**: the configuration is valid.
