@@ -10,6 +10,11 @@ The application is deliberately small. The point of the project is the path it t
 monitored Kubernetes cluster: tests → containers → CI/CD → security scan → registry → Terraform →
 Kubernetes/Helm → Prometheus/Grafana.
 
+> **Presentation:** the project slides are in
+> [`docs/DataDrift-Capstone-Presentation.pptx`](docs/DataDrift-Capstone-Presentation.pptx), and the
+> screenshots of the running project are in [`docs/screenshots/`](docs/screenshots/) (see
+> [Screenshots](#screenshots)).
+
 ```text
  Developer ── git push ──► GitHub ──► GitHub Actions
                                        ├─ ruff + pytest (backend)
