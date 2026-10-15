@@ -535,6 +535,14 @@ personal credentials are stored in the repository.
 
 ![GHCR login and push steps](docs/screenshots/35-actions-ghcr-login-push.png)
 
+**GHCR packages**: both images are public on the GitHub Container Registry. Every version is tagged with the
+full commit SHA that built it (for example `269dc33615f4de7173754d9368e8040c13cf8c42`), never `latest`. The
+"Latest" badge is only GitHub's label for the newest version.
+
+![GHCR backend package with SHA tags](docs/screenshots/36-ghcr-backend-package.png)
+
+![GHCR frontend package with SHA tags](docs/screenshots/37-ghcr-frontend-package.png)
+
 ### DevSecOps — Trivy in the pipeline
 
 The *Trivy scan (fails on fixable HIGH/CRITICAL CVEs)* step runs `aquasec/trivy:0.75.0` against the freshly
