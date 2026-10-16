@@ -14,7 +14,7 @@ Kubernetes/Helm → GitOps with Argo CD → Prometheus/Grafana.
 > ([`DataDrift-Capstone-Presentation.pptx`](demo/DataDrift-Capstone-Presentation.pptx), also as
 > [PDF](demo/DataDrift-Capstone-Presentation.pdf)) and the video walkthrough
 > ([`DataDrift-Demo.mp4`](demo/DataDrift-Demo.mp4)). Screenshots of the running project are in
-> [`docs/screenshots/`](docs/screenshots/) (see [Screenshots](#screenshots)).
+> [`screenshots/`](screenshots/) (see [Screenshots](#screenshots)).
 
 ```text
  Developer ── git push ──► GitHub ──► GitHub Actions
@@ -76,7 +76,7 @@ datadrift-capstone/
 ├── monitoring/              kube-prometheus-stack values (Prometheus + Grafana)
 ├── scripts/                 seed, cluster-up, argocd-up, deploy-local, load-test
 ├── demo/                    presentation deck (PPTX + PDF) and video walkthrough
-└── docs/screenshots/        screenshots of the running project
+└── screenshots/             screenshots of the running project
 ```
 
 ## The application
@@ -521,46 +521,46 @@ All screenshots were taken from the running project. They follow the order of th
 **`docker compose up --build`**: both images build, and Postgres, backend and frontend start. Postgres and the
 backend report `Healthy`.
 
-![docker compose up --build](docs/screenshots/01-compose-up-build.png)
+![docker compose up --build](screenshots/01-compose-up-build.png)
 
 **`docker compose ps`**: the three services are up, with ports 3000 (UI) and 8000 (API) published.
 
-![docker compose ps](docs/screenshots/02-compose-ps.png)
+![docker compose ps](screenshots/02-compose-ps.png)
 
 **Dashboard at http://localhost:3000**: KPI cards, the snapshot registry with drift bars, and the training gate.
 All six seeded snapshots are verified.
 
-![DataDrift dashboard](docs/screenshots/03-ui-dashboard.png)
+![DataDrift dashboard](screenshots/03-ui-dashboard.png)
 
 **Register a snapshot**: the form shows whether the drift score is below or above the 0.30 threshold before it
 is submitted.
 
-![Register snapshot form](docs/screenshots/04-ui-register-snapshot.png)
+![Register snapshot form](screenshots/04-ui-register-snapshot.png)
 
 **Drift detected**: a snapshot registered with drift 0.31 is flagged automatically, gets a red badge and is
 listed as blocked in the training gate.
 
-![Snapshot flagged as drift detected](docs/screenshots/05-ui-drift-detected.png)
+![Snapshot flagged as drift detected](screenshots/05-ui-drift-detected.png)
 
 ### API, metrics and database
 
 **Swagger UI at `/docs`**: GET, POST, PUT and DELETE on `/api/datasets`, plus `/health`, `/ready` and the summary.
 
-![Swagger UI](docs/screenshots/06-api-swagger-docs.png)
+![Swagger UI](screenshots/06-api-swagger-docs.png)
 
 **`/health`** returns `{"status":"UP"}`.
 
-![Health endpoint](docs/screenshots/07-api-health.png)
+![Health endpoint](screenshots/07-api-health.png)
 
 **`/metrics`** in Prometheus format: Python process metrics, the custom `datadrift_*` gauges and counters, and
 `http_requests_total`.
 
-![Metrics endpoint](docs/screenshots/08-api-metrics.png)
+![Metrics endpoint](screenshots/08-api-metrics.png)
 
 **PostgreSQL**: the `datasets` table with its unique and check constraints, the Alembic version
 `0001_create_datasets`, and the seeded rows.
 
-![Postgres table and Alembic version](docs/screenshots/09-postgres-schema-alembic.png)
+![Postgres table and Alembic version](screenshots/09-postgres-schema-alembic.png)
 
 ### Docker — non-root images
 
@@ -568,19 +568,19 @@ The backend runs as `uid=10001(appuser)` and the frontend as `uid=101(nginx)`. T
 for the commit SHA, and the Dockerfiles show the multi-stage frontend build (`node:22-alpine AS build` →
 `nginx-unprivileged`).
 
-![Non-root containers](docs/screenshots/10-docker-non-root.png)
+![Non-root containers](screenshots/10-docker-non-root.png)
 
 ### Testing — ruff and pytest
 
 `ruff check` and `ruff format --check` pass, and `pytest -v` runs 14 tests, all passing.
 
-![ruff and pytest](docs/screenshots/11-ruff-pytest.png)
+![ruff and pytest](screenshots/11-ruff-pytest.png)
 
 ### Git and GitHub
 
 The commit history: one descriptive commit per step, all by the project author.
 
-![Commit history](docs/screenshots/12-git-log.png)
+![Commit history](screenshots/12-git-log.png)
 
 ### CI/CD — GitHub Actions
 
@@ -588,21 +588,21 @@ A green pipeline run: lint + tests, frontend build and Terraform/Helm validation
 build → Trivy scan → GHCR push matrix for both images, then the Helm deploy job. The summary shows the
 pushed image `ghcr.io/kavyadhyani/datadrift-backend:<commit-sha>`, "built, scanned clean, pushed".
 
-![GitHub Actions run](docs/screenshots/13-github-actions-run.png)
+![GitHub Actions run](screenshots/13-github-actions-run.png)
 
 **Pushing to GHCR**: inside the *Build, scan & push (backend)* job, the image is built and scanned, then the
 job logs in to `ghcr.io` with the workflow's `GITHUB_TOKEN` ("Login Succeeded") and pushes the image. No
 personal credentials are stored in the repository.
 
-![GHCR login and push steps](docs/screenshots/35-actions-ghcr-login-push.png)
+![GHCR login and push steps](screenshots/35-actions-ghcr-login-push.png)
 
 **GHCR packages**: both images are public on the GitHub Container Registry. Every version is tagged with the
 full commit SHA that built it (for example `269dc33615f4de7173754d9368e8040c13cf8c42`), never `latest`. The
 "Latest" badge is only GitHub's label for the newest version.
 
-![GHCR backend package with SHA tags](docs/screenshots/36-ghcr-backend-package.png)
+![GHCR backend package with SHA tags](screenshots/36-ghcr-backend-package.png)
 
-![GHCR frontend package with SHA tags](docs/screenshots/37-ghcr-frontend-package.png)
+![GHCR frontend package with SHA tags](screenshots/37-ghcr-frontend-package.png)
 
 ### DevSecOps — Trivy in the pipeline
 
@@ -611,99 +611,99 @@ built image. It downloads the latest vulnerability database, checks the Debian O
 libraries, and also scans for secrets. The step passed, so the image had no fixable HIGH or CRITICAL CVEs
 and the job went on to push it. A finding would have stopped the job before the push.
 
-![Trivy scan step in GitHub Actions](docs/screenshots/34-actions-trivy-scan.png)
+![Trivy scan step in GitHub Actions](screenshots/34-actions-trivy-scan.png)
 
 ### Terraform — AWS VPC + EKS
 
 **`terraform init`, `fmt -check` and `validate`**: the configuration is valid.
 
-![terraform init and validate](docs/screenshots/14-terraform-init-validate.png)
+![terraform init and validate](screenshots/14-terraform-init-validate.png)
 
 **`terraform plan`** (offline, dummy credentials): `Plan: 25 to add, 0 to change, 0 to destroy`, with the
 outputs for the EKS cluster.
 
-![terraform plan](docs/screenshots/15-terraform-plan.png)
+![terraform plan](screenshots/15-terraform-plan.png)
 
 **The key resources in the plan**: VPC, two public and two private subnets, NAT gateway, EKS cluster,
 managed node group, and the EBS CSI and metrics-server add-ons.
 
-![Terraform resources](docs/screenshots/16-terraform-resources.png)
+![Terraform resources](screenshots/16-terraform-resources.png)
 
 **`terraform plan -destroy`**: nothing was applied, so there is nothing left to destroy and no AWS cost.
 
-![terraform destroy plan](docs/screenshots/17-terraform-destroy-plan.png)
+![terraform destroy plan](screenshots/17-terraform-destroy-plan.png)
 
 ### Kubernetes + Helm (kind)
 
 **`./scripts/cluster-up.sh`**: installs ingress-nginx, metrics-server and kube-prometheus-stack with Helm.
 
-![cluster-up: ingress-nginx](docs/screenshots/18-cluster-up-ingress.png)
+![cluster-up: ingress-nginx](screenshots/18-cluster-up-ingress.png)
 
-![cluster-up: metrics-server and kube-prometheus-stack](docs/screenshots/19-cluster-up-monitoring.png)
+![cluster-up: metrics-server and kube-prometheus-stack](screenshots/19-cluster-up-monitoring.png)
 
 **`./scripts/deploy-local.sh`**: builds images tagged with the commit SHA, loads them into kind and runs
 `helm upgrade --install`. The pods roll over to the new version.
 
-![Helm deploy](docs/screenshots/20-helm-deploy-seed.png)
+![Helm deploy](screenshots/20-helm-deploy-seed.png)
 
 **`kubectl get pods,svc,ingress,hpa` and `helm list`**: all pods Running, ClusterIP services for backend, frontend
 and Postgres, the Ingress host `datadrift.localtest.me`, the HPA (2–5 replicas at 60% CPU) and the release
 `datadrift` in status `deployed`.
 
-![kubectl and helm list](docs/screenshots/21-kubectl-pods-svc-helm.png)
+![kubectl and helm list](screenshots/21-kubectl-pods-svc-helm.png)
 
 **The app through the Ingress** at http://datadrift.localtest.me.
 
-![UI through the Ingress](docs/screenshots/22-ui-via-ingress.png)
+![UI through the Ingress](screenshots/22-ui-via-ingress.png)
 
 ### Observability — Prometheus + Grafana
 
 **`curl /metrics` on the backend Service in the cluster**.
 
-![Metrics in Kubernetes](docs/screenshots/23-k8s-metrics-endpoint.png)
+![Metrics in Kubernetes](screenshots/23-k8s-metrics-endpoint.png)
 
 **Prometheus targets**: the ServiceMonitor `datadrift/datadrift-backend` is scraping both backend pods, 2/2 UP.
 
-![Prometheus targets](docs/screenshots/24-prometheus-targets.png)
+![Prometheus targets](screenshots/24-prometheus-targets.png)
 
 **Alert rules** from the Helm chart's PrometheusRule: `DatasetDriftDetected`, `DataDriftBackendDown` and
 `DataDriftHighErrorRate`, all inactive.
 
-![Prometheus alert rules](docs/screenshots/25-prometheus-alert-rules.png)
+![Prometheus alert rules](screenshots/25-prometheus-alert-rules.png)
 
 **Grafana dashboard "DataDrift — Registry & API Overview"**, loaded automatically: drift alert OK, snapshots in
 drift, verified count, the average drift gauge, backend pods up, drift score per snapshot and snapshots by
 status.
 
-![Grafana dashboard](docs/screenshots/26-grafana-dashboard.png)
+![Grafana dashboard](screenshots/26-grafana-dashboard.png)
 
 **API panels**: request rate, p95 latency, error responses, backend CPU per pod and HPA replicas.
 
-![Grafana API panels](docs/screenshots/27-grafana-api-panels.png)
+![Grafana API panels](screenshots/27-grafana-api-panels.png)
 
 ### The drift alert, live
 
 After **Flag drift** is clicked on `clinic-readmission@v0.9-beta`, `DatasetDriftDetected` fires within about
 30 seconds, labelled with the dataset and version.
 
-![Prometheus alert firing](docs/screenshots/28-prometheus-alert-firing.png)
+![Prometheus alert firing](screenshots/28-prometheus-alert-firing.png)
 
 The Grafana **Drift alert** panel turns red with **FIRING**, "Snapshots in drift" shows 1, and the status chart
 steps up.
 
-![Grafana alert firing](docs/screenshots/29-grafana-alert-firing.png)
+![Grafana alert firing](screenshots/29-grafana-alert-firing.png)
 
 ### Autoscaling — HPA
 
 Under `./scripts/load-test.sh`, CPU rises to 98% of the request and the HPA scales the backend from 2 to 4
 pods. After the load stops, it waits out the 5-minute stabilization window and scales back to 2.
 
-![HPA scaling](docs/screenshots/30-hpa-scaling.png)
+![HPA scaling](screenshots/30-hpa-scaling.png)
 
 The same three load tests in Grafana: request rate, 4xx responses from the deliberate 404 calls, CPU per pod,
 and replicas moving between 2 and 4.
 
-![Grafana during load tests](docs/screenshots/31-grafana-load-test.png)
+![Grafana during load tests](screenshots/31-grafana-load-test.png)
 
 ### Live change: commit → pipeline → deployment
 
@@ -712,8 +712,8 @@ before Argo CD was added; Argo CD now performs the deploy step automatically).
 `deploy-local.sh --ghcr <sha>` deployed those exact GHCR images, the rollout finished, both Deployments run
 the image tagged with the new commit SHA, and `helm history` lists the revision.
 
-![Deploy GHCR images](docs/screenshots/32-deploy-ghcr-images.png)
+![Deploy GHCR images](screenshots/32-deploy-ghcr-images.png)
 
 The UI through the Ingress now shows **UI v1.1.0**.
 
-![UI version 1.1.0](docs/screenshots/33-ui-version-1-1-0.png)
+![UI version 1.1.0](screenshots/33-ui-version-1-1-0.png)

@@ -31,6 +31,5 @@ crash.log
 .DS_Store
 *.log
 
-# Local-only presentation notes
-docs/DEMO_GUIDE.md
-docs/VIDEO_SCRIPT.md
+# Local-only presentation notes (demo guide, video script)
+docs/
