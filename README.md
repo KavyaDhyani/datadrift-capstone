@@ -8,12 +8,13 @@ Flagging drift raises a Prometheus alert that shows up in Grafana.
 
 The application is deliberately small. The point of the project is the path it takes from a laptop to a
 monitored Kubernetes cluster: tests → containers → CI/CD → security scan → registry → Terraform →
-Kubernetes/Helm → Prometheus/Grafana.
+Kubernetes/Helm → GitOps with Argo CD → Prometheus/Grafana.
 
-> **Presentation:** the project slides are in
-> [`docs/DataDrift-Capstone-Presentation.pptx`](docs/DataDrift-Capstone-Presentation.pptx), and the
-> screenshots of the running project are in [`docs/screenshots/`](docs/screenshots/) (see
-> [Screenshots](#screenshots)).
+> **Presentation and video:** everything for the review is in [`demo/`](demo/): the slide deck
+> ([`DataDrift-Capstone-Presentation.pptx`](demo/DataDrift-Capstone-Presentation.pptx), also as
+> [PDF](demo/DataDrift-Capstone-Presentation.pdf)) and the video walkthrough
+> ([`DataDrift-Demo.mp4`](demo/DataDrift-Demo.mp4)). Screenshots of the running project are in
+> [`docs/screenshots/`](docs/screenshots/) (see [Screenshots](#screenshots)).
 
 ```text
  Developer ── git push ──► GitHub ──► GitHub Actions
@@ -21,11 +22,12 @@ Kubernetes/Helm → Prometheus/Grafana.
                                        ├─ npm build (frontend)
                                        ├─ terraform validate + helm lint
                                        ├─ docker build ─► Trivy scan (fail on HIGH/CRITICAL)
-                                       └─ push to GHCR, tagged with the commit SHA
+                                       ├─ push to GHCR, tagged with the commit SHA
+                                       └─ commit the new tag to helm/datadrift/values-gitops.yaml
                                                     │
                      Terraform: AWS VPC + EKS        │   (local demo: kind cluster)
                                                     ▼
-                                       helm upgrade --install datadrift
+                          Argo CD (in the cluster) watches Git and syncs helm/datadrift
                      ┌──────────────── Ingress (nginx) ─────────────────┐
                      │  /            → frontend  (React + Nginx, 2 pods) │
                      │  /api, /docs  → backend   (FastAPI, 2–5 pods, HPA)│
@@ -51,6 +53,7 @@ Kubernetes/Helm → Prometheus/Grafana.
 | Security | Trivy image scanning |
 | Infrastructure as Code | Terraform (AWS VPC, subnets, NAT, IAM, EKS, managed node group) |
 | Orchestration | Kubernetes (kind locally, EKS in AWS), Helm, ingress-nginx, HPA, metrics-server |
+| GitOps | Argo CD (automated sync with prune and self-heal), image tags written back by CI |
 | Observability | kube-prometheus-stack: Prometheus, Alertmanager, Grafana |
 
 ## Repository layout
@@ -67,9 +70,12 @@ datadrift-capstone/
 ├── terraform/               AWS VPC + EKS
 ├── k8s/                     namespace, kind cluster config, ingress-nginx / metrics-server values
 ├── helm/datadrift/          Helm chart (deployments, services, ingress, HPA, Postgres,
-│                            ServiceMonitor, PrometheusRule, Grafana dashboard)
+│                            ServiceMonitor, PrometheusRule, Grafana dashboard);
+│                            values-gitops.yaml holds the image tags Argo CD deploys
+├── argocd/                  Argo CD install values + the DataDrift Application manifest
 ├── monitoring/              kube-prometheus-stack values (Prometheus + Grafana)
-├── scripts/                 seed, cluster-up, deploy-local, load-test
+├── scripts/                 seed, cluster-up, argocd-up, deploy-local, load-test
+├── demo/                    presentation deck (PPTX + PDF) and video walkthrough
 └── docs/screenshots/        screenshots of the running project
 ```
 
@@ -137,6 +143,7 @@ Which scripts need a **running kind cluster** (create it once with `./scripts/cl
 | `scripts/seed.sh` (default URL) | no, it targets the Compose stack on `localhost:3000` |
 | `scripts/seed.sh http://datadrift.localtest.me` | yes |
 | `scripts/cluster-up.sh` | no, it creates the cluster |
+| `scripts/argocd-up.sh` | yes |
 | `scripts/deploy-local.sh` | yes |
 | `scripts/load-test.sh` | yes, it targets the Ingress and drives the HPA |
 | Prometheus / Grafana port-forwards | yes |
@@ -252,20 +259,26 @@ cd ..
 With a real AWS account, use `terraform plan`, `terraform apply` and `terraform destroy` instead
 (see [Terraform](#terraform--aws-vpc--eks)).
 
-### 7. Deploy to Kubernetes with Helm (kind)
+### 7. Deploy to Kubernetes with Argo CD (kind)
 
 ```bash
 ./scripts/cluster-up.sh       # kind cluster + ingress-nginx + metrics-server + kube-prometheus-stack (~3 min)
-./scripts/deploy-local.sh     # build images tagged with the commit SHA, load into kind, helm upgrade --install
+./scripts/argocd-up.sh        # Argo CD + the DataDrift Application; waits for Synced/Healthy, prints the password
 ./scripts/seed.sh http://datadrift.localtest.me
 
-kubectl get pods -n datadrift             # 2 backend, 2 frontend, 1 postgres, all Running
-kubectl get svc,ingress,hpa -n datadrift  # ClusterIP services, ingress host, HPA 2-5 @ 60% CPU
-helm list -n datadrift                    # release "datadrift", STATUS deployed
+kubectl get application datadrift -n argocd   # SYNC STATUS Synced, HEALTH STATUS Healthy
+kubectl get pods -n datadrift                 # 2 backend, 2 frontend, 1 postgres, all Running
+kubectl get svc,ingress,hpa -n datadrift      # ClusterIP services, ingress host, HPA 2-5 @ 60% CPU
 curl -s http://datadrift.localtest.me/api/datasets/summary | jq
 ```
 
-Open http://datadrift.localtest.me. `*.localtest.me` resolves to 127.0.0.1, so no hosts-file edit is needed.
+- App: http://datadrift.localtest.me. `*.localtest.me` resolves to 127.0.0.1, so no hosts-file edit is needed.
+- Argo CD: http://argocd.localtest.me, user `admin`. Print the password again with
+  `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo`
+
+Without Argo CD, `./scripts/deploy-local.sh` installs the same chart directly with `helm upgrade --install`
+(from locally built images, or `--ghcr <sha>` for CI's images) and `helm list -n datadrift` shows the release.
+Use one or the other: the script refuses to run while Argo CD manages the app.
 
 ### 8. Open Prometheus and Grafana
 
@@ -317,23 +330,27 @@ Replicas go from 2 up to 4 within about a minute once CPU passes 60%. After the 
 for its 5-minute scale-down stabilization window and then returns to 2. The Grafana panels for requests,
 latency, errors, CPU and replicas fill in during the test.
 
-### 11. Ship a change through the pipeline
+### 11. Ship a change through the pipeline (GitOps)
 
 ```bash
-sed -i "s/const UI_VERSION = '1.0.0'/const UI_VERSION = '1.1.0'/" frontend/src/App.jsx
-git commit -am "Bump dashboard version badge to 1.1.0" && git push
+git pull                                   # CI adds a commit after every push; start from the latest main
+sed -i -E "s/const UI_VERSION = '[0-9.]+'/const UI_VERSION = '1.2.0'/" frontend/src/App.jsx
+git commit -am "Bump dashboard version badge to 1.2.0" && git push
 ```
 
-Wait for the run at https://github.com/KavyaDhyani/datadrift-capstone/actions to go green, then deploy the
-images CI built for that commit:
+1. https://github.com/KavyaDhyani/datadrift-capstone/actions runs tests, build, Trivy and the GHCR push.
+2. Its last job commits `Deploy <sha> to the cluster via Argo CD [skip ci]`, which writes the new SHA into
+   `helm/datadrift/values-gitops.yaml`.
+3. Argo CD checks Git every minute, goes OutOfSync, then syncs and rolls out the new pods.
 
 ```bash
-./scripts/deploy-local.sh --ghcr "$(git rev-parse HEAD)"
+kubectl get application datadrift -n argocd -w          # OutOfSync -> Synced (Ctrl+C to stop)
 kubectl get deploy -n datadrift -o custom-columns=NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image
-helm history datadrift -n datadrift        # helm rollback datadrift <revision> undoes it
+git pull && git log --oneline -3                        # shows the tag commit CI made
 ```
 
-Refresh http://datadrift.localtest.me: the header badge shows `UI v1.1.0`.
+Refresh http://datadrift.localtest.me: the header badge shows the new version. To roll back, revert the change
+in Git (`git revert <commit> && git push`) and Argo CD deploys the reverted state.
 
 ### Reset the data
 
@@ -365,8 +382,10 @@ Runs on every push and pull request to `main`:
 4. **Build, scan & push** (backend and frontend in parallel): Docker build → Trivy scan that fails on
    fixable HIGH/CRITICAL CVEs → push to `ghcr.io/<owner>/datadrift-<service>:<commit-sha>`.
    Pull requests build and scan but never push.
-5. **Deploy**: `helm upgrade --install` with the new SHA tags when a `KUBE_CONFIG_DATA` secret is configured
-   (for example an EKS kubeconfig). Without it the job prints the command to deploy the same images locally.
+5. **GitOps hand-off** (pushes to `main` only): writes the new SHA into `helm/datadrift/values-gitops.yaml` and
+   commits it as the person who pushed, marked `[skip ci]`. Argo CD deploys it (see
+   [GitOps](#gitops--argo-cd)). The pipeline never holds cluster credentials. If `main` has moved on in the
+   meantime, the job skips and the newer run writes its own tag.
 
 Every image tag is the full Git commit SHA, never `latest`, so any running pod can be traced back to the
 commit that built it.
@@ -412,7 +431,7 @@ Everything in this section and the next needs the kind cluster running (see [Pre
 
 ```bash
 ./scripts/cluster-up.sh       # kind cluster + ingress-nginx + metrics-server + kube-prometheus-stack
-./scripts/deploy-local.sh     # build images tagged with the commit SHA, load into kind, helm upgrade --install
+./scripts/argocd-up.sh        # Argo CD deploys the chart from Git (GitOps)
 ./scripts/seed.sh http://datadrift.localtest.me
 ```
 
@@ -430,7 +449,31 @@ What the chart creates in namespace `datadrift`:
 | HPA | backend, CPU based |
 | ServiceMonitor, PrometheusRule, dashboard ConfigMap | monitoring hooks (see below) |
 
-To deploy the exact images CI pushed for a commit: `./scripts/deploy-local.sh --ghcr <commit-sha>`.
+Plain Helm instead of Argo CD: `./scripts/deploy-local.sh` (or `--ghcr <commit-sha>` for CI's images).
+
+## GitOps — Argo CD
+
+Argo CD runs inside the cluster and keeps it in sync with this repository, so Git is the single source of
+truth for what is deployed.
+
+| File | Purpose |
+|------|---------|
+| `argocd/argocd-values.yaml` | Argo CD Helm values (chart `argo/argo-cd` 10.9.5): UI at `argocd.localtest.me` behind ingress-nginx, Git checked every 60 s, Dex, notifications and the ApplicationSet controller turned off to save memory |
+| `argocd/datadrift-application.yaml` | the `datadrift` Application: chart `helm/datadrift` from `main` with `values-gitops.yaml`, namespace `datadrift`, automated sync with `prune` and `selfHeal` |
+| `helm/datadrift/values-gitops.yaml` | GHCR image repositories and the current tag; CI rewrites the tag after each build |
+| `scripts/argocd-up.sh` | installs Argo CD, hands over an existing Helm release (the Postgres volume is kept), applies the Application |
+
+Flow: `git push` → CI tests, scans and pushes `image:<sha>` → CI commits the tag → Argo CD sees the commit
+(OutOfSync) → syncs → rolling update with `maxUnavailable: 0`.
+
+```bash
+kubectl get applications -n argocd                       # datadrift  Synced  Healthy
+kubectl annotate application datadrift -n argocd argocd.argoproj.io/refresh=normal --overwrite   # check Git now
+kubectl get application datadrift -n argocd -o jsonpath='{range .status.history[*]}{.revision}{"\n"}{end}'
+```
+
+`selfHeal` in action: `kubectl scale deploy/datadrift-frontend -n datadrift --replicas=1` is undone within
+seconds, because Git says 2.
 
 ## Observability — Prometheus + Grafana
 
@@ -449,6 +492,24 @@ kubectl port-forward -n monitoring svc/monitoring-kube-prometheus-prometheus 909
 Clicking **Flag drift** in the UI sends `PUT /api/datasets/{id}`. The badge turns red, the next scrape exports
 the snapshot with `status="DRIFT_DETECTED"`, and within about 30 seconds the `DatasetDriftDetected` alert
 fires in Prometheus and the dashboard's "Drift alert" panel turns red.
+
+## Known issues and limitations
+
+- **No AWS account was used.** Terraform is validated and planned offline with dummy credentials, so there is
+  no AWS Console screenshot and no real `terraform apply`/`destroy`. Everything runs on a local kind cluster.
+- **EKS deployment is described, not exercised.** `values-prod.yaml` and the Terraform outputs cover EKS, but
+  only the kind cluster has been deployed to.
+- **CI commits to `main`.** The GitOps job adds a `[skip ci]` tag commit after every push, so run `git pull`
+  before your next commit.
+- **Demo credentials are in Git.** The local Postgres password (`datadrift-local`) and the Grafana admin
+  password are committed for the local demo only. A real cluster would use Kubernetes Secrets managed outside
+  Git (for example Sealed Secrets or External Secrets), and Argo CD's generated admin password should be rotated.
+- **Postgres is a single pod.** The StatefulSet has a persistent volume but no replication or backups; in AWS it
+  would move to Amazon RDS.
+- **The drift score comes from the client.** DataDrift stores, gates and alerts on the score; it does not
+  compute drift from the data itself.
+- **Alerts stay in Prometheus and Grafana.** Alertmanager has no receiver (Slack or email) configured.
+- **Single-node cluster.** kind shows autoscaling and rolling updates, but not node failure.
 
 ## Screenshots
 
@@ -646,7 +707,8 @@ and replicas moving between 2 and 4.
 
 ### Live change: commit → pipeline → deployment
 
-After the version badge was bumped to 1.1.0 and pushed, the pipeline built and pushed new images.
+After the version badge was bumped to 1.1.0 and pushed, the pipeline built and pushed new images (captured
+before Argo CD was added; Argo CD now performs the deploy step automatically).
 `deploy-local.sh --ghcr <sha>` deployed those exact GHCR images, the rollout finished, both Deployments run
 the image tagged with the new commit SHA, and `helm history` lists the revision.
 
