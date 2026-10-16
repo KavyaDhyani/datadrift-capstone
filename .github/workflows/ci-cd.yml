@@ -120,41 +120,27 @@ jobs:
           echo "\`$IMAGE\` — built, scanned clean, pushed" >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------- deploy
-  deploy:
-    name: Deploy with Helm
+  gitops:
+    name: GitOps - bump image tag for Argo CD
     needs: build-scan-push
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    env:
-      KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: No cluster configured
-        if: env.KUBE_CONFIG_DATA == ''
+      - name: Write the new tag to helm/datadrift/values-gitops.yaml
         run: |
-          echo "::notice::KUBE_CONFIG_DATA secret is not set, so the cluster deploy is skipped."
-          echo "Images for ${GITHUB_SHA} are in GHCR. Deploy them locally with:" >> "$GITHUB_STEP_SUMMARY"
-          echo "\`./scripts/deploy-local.sh --ghcr ${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
-      - uses: azure/setup-helm@v4
-        if: env.KUBE_CONFIG_DATA != ''
-      - name: Configure kubectl
-        if: env.KUBE_CONFIG_DATA != ''
-        run: |
-          mkdir -p ~/.kube
-          echo "$KUBE_CONFIG_DATA" | base64 -d > ~/.kube/config
-          chmod 600 ~/.kube/config
-      - name: helm upgrade --install
-        if: env.KUBE_CONFIG_DATA != ''
-        run: |
-          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
-          helm upgrade --install datadrift ./helm/datadrift \
-            -n datadrift --create-namespace \
-            -f helm/datadrift/values-prod.yaml \
-            --set backend.image.repository="ghcr.io/$OWNER/datadrift-backend" \
-            --set frontend.image.repository="ghcr.io/$OWNER/datadrift-frontend" \
-            --set backend.image.tag="${GITHUB_SHA}" \
-            --set frontend.image.tag="${GITHUB_SHA}" \
-            --set postgres.password="${DB_PASSWORD:?Set the DB_PASSWORD repository secret}" \
-            --wait --timeout 10m
-          kubectl get pods -n datadrift
+          git fetch -q origin main
+          if [ "$(git rev-parse origin/main)" != "${GITHUB_SHA}" ]; then
+            echo "::notice::main has moved on since ${GITHUB_SHA}; the newer run will update the tag."
+            exit 0
+          fi
+          sed -i -E "s/^(    tag: ).*/\1${GITHUB_SHA}/" helm/datadrift/values-gitops.yaml
+          git diff --stat
+          # Commit as the person who pushed, through their GitHub noreply address.
+          git -c user.name="${GITHUB_ACTOR}" \
+              -c user.email="${GITHUB_ACTOR_ID}+${GITHUB_ACTOR}@users.noreply.github.com" \
+              commit -am "Deploy ${GITHUB_SHA::7} to the cluster via Argo CD [skip ci]"
+          git push origin HEAD:main
+          echo "Argo CD will roll out \`${GITHUB_SHA}\` from \`helm/datadrift/values-gitops.yaml\`." >> "$GITHUB_STEP_SUMMARY"
