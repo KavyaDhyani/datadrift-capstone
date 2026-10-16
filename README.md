@@ -656,6 +656,29 @@ and Postgres, the Ingress host `datadrift.localtest.me`, the HPA (2–5 replicas
 
 ![UI through the Ingress](screenshots/22-ui-via-ingress.png)
 
+### GitOps — Argo CD
+
+**Applications page** at http://argocd.localtest.me: the `datadrift` Application is **Healthy** and
+**Synced**, tracking `helm/datadrift` on `main` of this repository.
+
+![Argo CD applications](screenshots/38-argocd-applications.png)
+
+**Resource tree**: everything the chart creates (deployments with their ReplicaSets and pods, the Postgres
+StatefulSet and its volume, services, ingress, HPA, ServiceMonitor, PrometheusRule and dashboard ConfigMap),
+all green. The header shows that the last sync came from CI's commit `Deploy 7cd971a to the cluster via Argo CD`.
+
+![Argo CD resource tree](screenshots/39-argocd-resource-tree.png)
+
+**History and rollback**: each push to `main` is a separate automated sync, one per commit, initiated by the
+automated sync policy. Any revision can be rolled back from here or by reverting it in Git.
+
+![Argo CD sync history](screenshots/40-argocd-sync-history.png)
+
+**From the terminal**: the Application is `Synced` / `Healthy`, and the latest commit on `main` is the tag
+commit CI made after the previous push.
+
+![Argo CD status and the CI tag commit](screenshots/41-argocd-cli-synced.png)
+
 ### Observability — Prometheus + Grafana
 
 **`curl /metrics` on the backend Service in the cluster**.
