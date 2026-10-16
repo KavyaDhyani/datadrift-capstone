@@ -3,12 +3,12 @@
 backend:
   image:
     repository: ghcr.io/kavyadhyani/datadrift-backend
-    tag: 7a9b7c30492df57269f1e167007141cecee0b9fb
+    tag: a255b96c077f8af277d75d53ba004274e4914a80
     pullPolicy: IfNotPresent
 frontend:
   image:
     repository: ghcr.io/kavyadhyani/datadrift-frontend
-    tag: 7a9b7c30492df57269f1e167007141cecee0b9fb
+    tag: a255b96c077f8af277d75d53ba004274e4914a80
     pullPolicy: IfNotPresent
 postgres:
   password: datadrift-local      # local demo only, same as values-local.yaml
