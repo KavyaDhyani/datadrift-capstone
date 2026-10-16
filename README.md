@@ -13,7 +13,9 @@ Kubernetes/Helm → GitOps with Argo CD → Prometheus/Grafana.
 > **Presentation and video:** everything for the review is in [`demo/`](demo/): the slide deck
 > ([`DataDrift-Capstone-Presentation.pptx`](demo/DataDrift-Capstone-Presentation.pptx), also as
 > [PDF](demo/DataDrift-Capstone-Presentation.pdf)) and the video walkthrough
-> ([`DataDrift-Demo.mp4`](demo/DataDrift-Demo.mp4)). Screenshots of the running project are in
+> ([`DataDrift-Demo.mp4`](demo/DataDrift-Demo.mp4), 86 MB; or **watch it online on
+> [Loom](https://www.loom.com/share/e653b00a16604e28bbdb0d13955c33af)** without downloading). Screenshots of the
+> running project are in
 > [`screenshots/`](screenshots/) (see [Screenshots](#screenshots)).
 
 ```text
