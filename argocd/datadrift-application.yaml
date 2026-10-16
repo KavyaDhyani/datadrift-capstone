@@ -1,0 +1,27 @@
+# Argo CD watches the Helm chart in this repository and keeps the cluster in sync with it.
+# CI writes the new image tag (the commit SHA) to helm/datadrift/values-gitops.yaml after
+# every successful build on main; Argo CD sees the change and rolls it out.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: datadrift
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/KavyaDhyani/datadrift-capstone.git
+    targetRevision: main
+    path: helm/datadrift
+    helm:
+      releaseName: datadrift
+      valueFiles:
+        - values-gitops.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: datadrift
+  syncPolicy:
+    automated:
+      prune: true        # delete resources that were removed from Git
+      selfHeal: true     # undo manual changes made with kubectl
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,22 @@
+# Values for the argo-cd Helm chart (argo/argo-cd 10.9.5) on the local kind cluster.
+global:
+  domain: argocd.localtest.me        # http://argocd.localtest.me through ingress-nginx
+
+configs:
+  params:
+    server.insecure: true            # TLS ends at the ingress; plain HTTP is fine on a laptop
+  cm:
+    timeout.reconciliation: 60s      # check Git every minute so a demo push syncs quickly
+
+server:
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+
+# Not needed for a single-user demo; keeps the cluster light.
+dex:
+  enabled: false
+notifications:
+  enabled: false
+applicationSet:
+  enabled: false

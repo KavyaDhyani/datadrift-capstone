@@ -1,0 +1,16 @@
+# Deployed by Argo CD (argocd/datadrift-application.yaml) on the local kind cluster.
+# The image tags are updated by CI after each successful build on main. Do not edit them by hand.
+backend:
+  image:
+    repository: ghcr.io/kavyadhyani/datadrift-backend
+    tag: 5c6838f5730b3674933bd124f085ba636eeb0e4f
+    pullPolicy: IfNotPresent
+frontend:
+  image:
+    repository: ghcr.io/kavyadhyani/datadrift-frontend
+    tag: 5c6838f5730b3674933bd124f085ba636eeb0e4f
+    pullPolicy: IfNotPresent
+postgres:
+  password: datadrift-local      # local demo only, same as values-local.yaml
+ingress:
+  host: datadrift.localtest.me
