@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api.js';
 
 // Bump this when demoing a release: the header badge shows which build is live.
-const UI_VERSION = '1.2.0';
+const UI_VERSION = '1.3.0';
 
 const FILTERS = [
   { key: 'ALL', label: 'All' },
