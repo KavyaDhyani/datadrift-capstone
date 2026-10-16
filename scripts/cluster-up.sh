@@ -32,4 +32,4 @@ helm upgrade --install monitoring prometheus-community/kube-prometheus-stack --v
 
 kubectl apply -f k8s/namespace.yaml
 echo
-echo "Cluster ready. Next: ./scripts/deploy-local.sh"
+echo "Cluster ready. Next: ./scripts/argocd-up.sh (GitOps) or ./scripts/deploy-local.sh (plain Helm)"

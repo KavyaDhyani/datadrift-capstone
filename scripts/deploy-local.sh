@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploys DataDrift to the local kind cluster with Helm.
+# Deploys DataDrift to the local kind cluster with plain Helm (the alternative to Argo CD).
 #
 #   ./scripts/deploy-local.sh             build images from the working tree, tag them with the
 #                                         current Git commit SHA, load them into kind and deploy
@@ -11,6 +11,12 @@ cd "$(dirname "$0")/.."
 CLUSTER=datadrift
 NAMESPACE=datadrift
 RELEASE=datadrift
+
+if kubectl get application datadrift -n argocd >/dev/null 2>&1; then
+  echo "Argo CD manages DataDrift on this cluster (see ./scripts/argocd-up.sh): push to main instead."
+  echo "To go back to plain Helm: kubectl delete application datadrift -n argocd"
+  exit 1
+fi
 
 if [[ "${1:-}" == "--ghcr" ]]; then
   TAG="${2:?usage: deploy-local.sh --ghcr <commit-sha>}"
