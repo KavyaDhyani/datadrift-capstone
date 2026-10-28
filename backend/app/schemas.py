@@ -1,9 +1,12 @@
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 Status = Literal["VERIFIED", "DRIFT_DETECTED", "ARCHIVED"]
+DriftMethod = Literal["provided", "computed", "baseline", "unscored"]
+# Column name -> histogram (bucket or category label -> count).
+Profile = dict[str, dict[str, Annotated[float, Field(ge=0.0)]]]
 
 
 class DatasetCreate(BaseModel):
@@ -11,7 +14,11 @@ class DatasetCreate(BaseModel):
     version_tag: str = Field(min_length=1, max_length=60, examples=["v1.2-cleaned"])
     record_count: int = Field(ge=0, examples=[125000])
     missing_pct: float = Field(default=0.0, ge=0.0, le=100.0, examples=[1.8])
-    drift_score: float = Field(default=0.0, ge=0.0, le=1.0, examples=[0.12])
+    # Leave drift_score out and send a profile to have drift computed against the last verified baseline.
+    drift_score: float | None = Field(default=None, ge=0.0, le=1.0, examples=[0.12])
+    profile: Profile | None = Field(
+        default=None, examples=[{"plan": {"basic": 610, "pro": 290, "team": 100}, "age": {"18-30": 400, "31-60": 600}}]
+    )
 
 
 class DatasetUpdate(BaseModel):
@@ -29,6 +36,9 @@ class DatasetOut(BaseModel):
     missing_pct: float
     drift_score: float
     status: Status
+    drift_method: DriftMethod
+    column_drift: dict[str, float] | None
+    baseline_id: int | None
     created_at: datetime
     updated_at: datetime
 

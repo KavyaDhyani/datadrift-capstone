@@ -2,7 +2,9 @@
 
 DataDrift is a small data registry for ML teams. Every time a training dataset is refreshed, the new
 snapshot is registered with its version tag, record count, missing-value percentage and a **drift score**
-(0.0 – 1.0) that measures how far it has moved from the last verified baseline. Snapshots at or above the
+(0.0 – 1.0) that measures how far it has moved from the last verified baseline. Send a column profile and the
+backend computes the score itself (Jensen-Shannon distance per column, see
+[How drift is scored](#how-drift-is-scored)); send a score and it is used as given. Snapshots at or above the
 drift threshold (0.30) are flagged `DRIFT_DETECTED` and blocked from training until someone reviews them.
 Flagging drift raises a Prometheus alert that shows up in Grafana.
 
@@ -64,8 +66,8 @@ Kubernetes/Helm → GitOps with Argo CD → Prometheus/Grafana.
 datadrift-capstone/
 ├── backend/                 FastAPI app, Alembic migrations, pytest suite, Dockerfile
 │   ├── app/                 main.py (routes), models.py, schemas.py, db.py, config.py, metrics.py
-│   ├── alembic/versions/    0001_create_datasets.py
-│   └── tests/               conftest.py (SQLite test DB) + test_api.py (14 tests)
+│   ├── alembic/versions/    0001_create_datasets.py, 0002_add_drift_profiles.py
+│   └── tests/               conftest.py (SQLite test DB), test_api.py (14), test_drift.py (15)
 ├── frontend/                React dashboard, Nginx template, multi-stage Dockerfile
 ├── docker-compose.yml       postgres + backend + frontend
 ├── .github/workflows/       ci-cd.yml
@@ -94,9 +96,14 @@ datadrift-capstone/
 | `missing_pct` | float | % of missing values |
 | `drift_score` | float | 0.0 – 1.0, enforced by a check constraint |
 | `status` | varchar(20) | `VERIFIED`, `DRIFT_DETECTED` or `ARCHIVED` |
+| `drift_method` | varchar(20) | `provided`, `computed`, `baseline` or `unscored` |
+| `profile` | json | column → histogram (bucket → count), optional |
+| `column_drift` | json | per-column drift when the score was computed |
+| `baseline_id` | integer | the snapshot it was compared with (foreign key, `SET NULL` on purge) |
 | `created_at`, `updated_at` | timestamptz | |
 
-The table is created by the Alembic migration `backend/alembic/versions/0001_create_datasets.py`. The backend
+The table is created by the Alembic migration `0001_create_datasets.py`; `0002_add_drift_profiles.py` adds the
+drift columns. The backend
 container runs `alembic upgrade head` before starting. A Postgres advisory lock stops several replicas from
 migrating at the same time.
 
@@ -110,9 +117,30 @@ migrating at the same time.
 | GET | `/api/datasets` | list snapshots (optional `?status=DRIFT_DETECTED`) |
 | GET | `/api/datasets/summary` | counts per status and the average drift score |
 | GET | `/api/datasets/{id}` | one snapshot |
-| POST | `/api/datasets` | register a snapshot; status is set from the drift score |
+| POST | `/api/datasets` | register a snapshot; drift is computed from its profile (or taken as given), status follows |
 | PUT | `/api/datasets/{id}` | update drift score / status (the UI's **Flag drift** button) |
 | DELETE | `/api/datasets/{id}` | archive; `?purge=true` deletes permanently |
+
+### How drift is scored
+
+`backend/app/drift.py`. A snapshot can carry a `profile`: for each column, a histogram of counts per bucket or
+category, for example `{"plan": {"basic": 600, "pro": 300, "team": 100}}`.
+
+1. **Baseline.** The newest `VERIFIED` snapshot of the same dataset that has a profile. Flagged snapshots never
+   become the baseline, so a drifted release can't quietly reset the reference.
+2. **Per column.** Both histograms are normalised and compared with the Jensen-Shannon distance (base 2):
+   symmetric, 0.0 for identical distributions, 1.0 for no overlap. A column that appears in only one of the two
+   profiles is a schema change and scores 1.0.
+3. **Snapshot score.** The worst column. It is stored with the per-column scores and the baseline's id.
+
+| Request | `drift_method` | `drift_score` |
+|---------|----------------|---------------|
+| `drift_score` given (with or without a profile) | `provided` | as given |
+| profile, no earlier verified profile for this dataset | `baseline` | 0.0 |
+| profile, baseline found | `computed` | worst column's distance |
+| neither | `unscored` | 0.0 |
+
+A `PUT` with a new `drift_score` sets `drift_method` back to `provided`.
 
 Interactive Swagger docs: `http://localhost:8000/docs` (Compose) or `http://datadrift.localtest.me/docs` (Kubernetes).
 
@@ -166,7 +194,7 @@ git clone https://github.com/KavyaDhyani/datadrift-capstone.git
 cd datadrift-capstone
 docker compose up --build -d --wait     # postgres, backend (runs the migration first), frontend
 docker compose ps                       # all three services Up; backend and postgres (healthy)
-./scripts/seed.sh                       # registers six sample snapshots through the API
+./scripts/seed.sh                       # registers nine sample snapshots, three of them scored from profiles
 ```
 
 | URL | What |
@@ -191,6 +219,15 @@ ID=$(curl -s -X POST $API/api/datasets -H 'Content-Type: application/json' \
   -d '{"dataset_name":"demo-set","version_tag":"v1","record_count":5000,"missing_pct":1.2,"drift_score":0.42}' \
   | jq .id)
 curl -s $API/api/datasets/$ID | jq '{dataset_name, status}'  # DRIFT_DETECTED
+
+# POST with a profile and no score: the backend computes drift against the last verified baseline
+P='{"plan":{"basic":600,"pro":300,"team":100}}'
+curl -s -X POST $API/api/datasets -H 'Content-Type: application/json' \
+  -d "{\"dataset_name\":\"profiled\",\"version_tag\":\"v1\",\"record_count\":1000,\"profile\":$P}" | jq .drift_method   # "baseline"
+P='{"plan":{"basic":100,"pro":300,"team":600}}'
+curl -s -X POST $API/api/datasets -H 'Content-Type: application/json' \
+  -d "{\"dataset_name\":\"profiled\",\"version_tag\":\"v2\",\"record_count\":1000,\"profile\":$P}" \
+  | jq '{drift_score, status, column_drift}'                                  # 0.5346, DRIFT_DETECTED
 
 # PUT: mark it verified (what the UI's "Mark verified" button does)
 curl -s -X PUT $API/api/datasets/$ID -H 'Content-Type: application/json' -d '{"status":"VERIFIED"}' | jq .status
@@ -231,8 +268,9 @@ deactivate && cd ..
 ```
 
 `tests/conftest.py` sets `DATABASE_URL` to a throwaway SQLite file before the app is imported and recreates
-the tables for every test, so the suite never touches Postgres. The 14 tests cover every endpoint, including
-validation errors, duplicate versions (409), automatic drift flagging, archive vs purge, and the metrics output.
+the tables for every test, so the suite never touches Postgres. The 29 tests cover every endpoint, including
+validation errors, duplicate versions (409), automatic drift flagging, archive vs purge, and the metrics output,
+plus the drift scoring: the distance itself, baseline choice, schema changes and which method wins.
 
 ### 5. Check the containers: non-root users and the Trivy scan
 
@@ -508,8 +546,9 @@ fires in Prometheus and the dashboard's "Drift alert" panel turns red.
   Git (for example Sealed Secrets or External Secrets), and Argo CD's generated admin password should be rotated.
 - **Postgres is a single pod.** The StatefulSet has a persistent volume but no replication or backups; in AWS it
   would move to Amazon RDS.
-- **The drift score comes from the client.** DataDrift stores, gates and alerts on the score; it does not
-  compute drift from the data itself.
+- **Drift is computed from client-side profiles, not raw data.** The client sends per-column histograms; DataDrift
+  does not read the dataset files. Numeric columns must be bucketed the same way in every snapshot, and a client
+  can still send its own `drift_score`, which is used as given.
 - **Alerts stay in Prometheus and Grafana.** Alertmanager has no receiver (Slack or email) configured.
 - **Single-node cluster.** kind shows autoscaling and rolling updates, but not node failure.
 

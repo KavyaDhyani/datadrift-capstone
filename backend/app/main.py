@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import get_db
+from .drift import column_drift, drift_score
 from .metrics import DRIFT_FLAGS, SNAPSHOTS_REGISTERED
 from .models import Dataset
 from .schemas import DatasetCreate, DatasetOut, DatasetUpdate, Status, SummaryOut
@@ -20,6 +21,35 @@ Instrumentator(excluded_handlers=["/metrics", "/health", "/ready"]).instrument(a
 
 def status_for(drift_score: float) -> str:
     return "DRIFT_DETECTED" if drift_score >= settings.drift_threshold else "VERIFIED"
+
+
+def latest_baseline(db: Session, dataset_name: str) -> Dataset | None:
+    """The newest VERIFIED snapshot of this dataset that carries a profile."""
+    query = (
+        select(Dataset)
+        .where(Dataset.dataset_name == dataset_name, Dataset.status == "VERIFIED", Dataset.profile.is_not(None))
+        .order_by(Dataset.created_at.desc(), Dataset.id.desc())
+        .limit(1)
+    )
+    return db.scalars(query).first()
+
+
+def score_snapshot(db: Session, payload: DatasetCreate) -> dict:
+    """Decide the drift score: the client's score wins; otherwise compare the profile with the baseline."""
+    if payload.drift_score is not None:
+        return {"drift_score": payload.drift_score, "drift_method": "provided"}
+    if payload.profile is None:
+        return {"drift_score": 0.0, "drift_method": "unscored"}
+    baseline = latest_baseline(db, payload.dataset_name)
+    if baseline is None:
+        return {"drift_score": 0.0, "drift_method": "baseline"}
+    columns = column_drift(baseline.profile, payload.profile)
+    return {
+        "drift_score": drift_score(columns),
+        "drift_method": "computed",
+        "column_drift": columns,
+        "baseline_id": baseline.id,
+    }
 
 
 def get_or_404(db: Session, dataset_id: int) -> Dataset:
@@ -74,7 +104,8 @@ def get_dataset(dataset_id: int, db: Session = Depends(get_db)):
 
 @app.post("/api/datasets", response_model=DatasetOut, status_code=status.HTTP_201_CREATED)
 def register_dataset(payload: DatasetCreate, db: Session = Depends(get_db)):
-    dataset = Dataset(**payload.model_dump(), status=status_for(payload.drift_score))
+    scored = score_snapshot(db, payload)
+    dataset = Dataset(**payload.model_dump(exclude={"drift_score"}), **scored, status=status_for(scored["drift_score"]))
     db.add(dataset)
     try:
         db.commit()
@@ -97,6 +128,8 @@ def update_dataset(dataset_id: int, payload: DatasetUpdate, db: Session = Depend
     changes = payload.model_dump(exclude_unset=True)
     for key, value in changes.items():
         setattr(dataset, key, value)
+    if "drift_score" in changes:
+        dataset.drift_method = "provided"
     # A new drift score re-evaluates the status unless the caller set one explicitly.
     if "drift_score" in changes and "status" not in changes and dataset.status != "ARCHIVED":
         dataset.status = status_for(dataset.drift_score)

@@ -33,6 +33,8 @@ def snapshot(client):
             "missing_pct": 2.5,
             "drift_score": 0.08,
         } | overrides
+        # drift_score=None means "leave it out", so the backend scores the profile.
+        payload = {key: value for key, value in payload.items() if value is not None}
         response = client.post("/api/datasets", json=payload)
         assert response.status_code == 201, response.text
         return response.json()
